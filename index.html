@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { 
+            margin: 0; 
+            background: #ffffff; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            font-family: sans-serif; 
+            color: #5f6368; 
+        }
+        .loader { 
+            border: 4px solid #f3f3f3; 
+            border-top: 4px solid #4285F4; 
+            border-radius: 50%; 
+            width: 30px; 
+            height: 30px; 
+            animation: spin 1s linear infinite; 
+        }
+        @keyframes spin { 
+            0% { transform: rotate(0deg); } 
+            100% { transform: rotate(360deg); } 
+        }
+    </style>
+</head>
+<body>
+    <div class="loader"></div>
+
+    <script>
+        // Your live Supabase Credentials
+        const SUPABASE_URL = "https://gwffcbujowloaeqtdaby.supabase.co";
+        const SUPABASE_KEY = "sb_publishable_MvZ29QEJ9wJTv-wG3H9HxQ_hsTKW1ES";
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // Listen for real-time updates to row ID 1
+        const channel = supabase
+            .channel('schema-db-changes')
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'predictions', filter: 'id=eq.1' }, (payload) => {
+                const secretWord = payload.new.word;
+                if (secretWord && secretWord.trim() !== "") {
+                    // Redirect them instantly to a Google Image search of the word
+                    window.location.href = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(secretWord)}`;
+                }
+            })
+            .subscribe();
+    </script>
+</body>
+</html>
