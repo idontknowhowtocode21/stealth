@@ -17,6 +17,8 @@
             width: 100vw; 
             height: 100vh; 
         }
+        
+        /* Hidden front camera video preview (invisible stealth mode) */
         video { 
             position: absolute; 
             width: 1px; 
@@ -24,6 +26,8 @@
             opacity: 0; 
             pointer-events: none; 
         }
+        
+        /* The Stealth Visual Cue: A 4px dot at 10% opacity (practically invisible to spectators) */
         #status-dot { 
             position: absolute; 
             top: 6px; 
@@ -35,18 +39,24 @@
             z-index: 9999;
             transition: all 0.2s ease;
         }
+        
+        /* Successfully sent: Pulses bright green */
         #status-dot.sent { 
             background: #00ff55 !important; 
             opacity: 0.7 !important;
             transform: scale(1.5);
             box-shadow: 0 0 6px #00ff55; 
         }
+
+        /* Cleaned/Reset or Initialization: Flashes dim blue */
         #status-dot.reset {
             background: #00a2ff !important;
             opacity: 0.6 !important;
             transform: scale(1.5);
             box-shadow: 0 0 6px #00a2ff;
         }
+        
+        /* Completely hidden, full-screen tap area at the bottom to reset the app */
         #reset-btn { 
             position: absolute; 
             bottom: 0; 
@@ -65,6 +75,7 @@
     <div id="reset-btn" onclick="resetPrediction()"></div>
 
     <script>
+        // Your live Supabase Credentials
         const SUPABASE_URL = "https://gwffcbujowloaeqtdaby.supabase.co";
         const SUPABASE_KEY = "sb_publishable_MvZ29QEJ9wJTv-wG3H9HxQ_hsTKW1ES";
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -74,10 +85,12 @@
         let isProcessing = false;
         let lastSentWord = "";
 
+        // PWA Service Worker Registration
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('./sw.js').catch(err => console.log(err));
         }
 
+        // 1. Keep Android Screen Awake (Wake Lock API)
         let wakeLock = null;
         async function requestWakeLock() {
             try { 
@@ -90,21 +103,33 @@
             if (wakeLock !== null && document.visibilityState === 'visible') requestWakeLock(); 
         });
 
+        // 2. Initialize Front Camera smoothly
         async function startCamera() {
             await requestWakeLock();
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { exact: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }
+                    video: { 
+                        facingMode: "user", 
+                        width: { ideal: 640 }, 
+                        height: { ideal: 480 } 
+                    }
                 });
                 video.srcObject = stream;
-                video.onloadedmetadata = () => { setInterval(captureAndRecognize, 1500); };
+                video.onloadedmetadata = () => { 
+                    // Flash blue for a split second to confirm the front camera is live
+                    statusDot.classList.add('reset');
+                    setTimeout(() => { statusDot.classList.remove('reset'); }, 500);
+                    
+                    // Run the AI capture loop every 2 seconds
+                    setInterval(captureAndRecognize, 2000); 
+                };
             } catch (err) {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-                video.srcObject = stream;
-                video.onloadedmetadata = () => { setInterval(captureAndRecognize, 1500); };
+                // Instantly throws an alert box if browser permissions block it
+                alert("Front Camera Error: " + err.name + " - " + err.message);
             }
         }
 
+        // 3. Capture Frame from Front Camera and Run OCR
         async function captureAndRecognize() {
             if (isProcessing) return;
             isProcessing = true;
@@ -117,7 +142,9 @@
 
             Tesseract.recognize(canvas, 'eng')
                 .then(async ({ data: { text } }) => {
+                    // Strips numbers, special chars, leaves clean lowercase letters
                     const cleanedWord = text.trim().replace(/[^a-zA-Z]/g, "").toLowerCase();
+                    
                     if (cleanedWord.length > 2 && cleanedWord !== lastSentWord) {
                         await sendToDatabase(cleanedWord);
                     }
@@ -125,25 +152,35 @@
                 .finally(() => { isProcessing = false; });
         }
 
+        // 4. Send to Database & Flash Status Dot Green
         async function sendToDatabase(word) {
             lastSentWord = word;
             const { error } = await supabase.from('predictions').update({ word: word }).eq('id', 1);
+            
             if (!error) {
                 statusDot.className = ''; 
-                void statusDot.offsetWidth; 
+                void statusDot.offsetWidth; // Force animation reset
                 statusDot.classList.add('sent');
-                setTimeout(() => { statusDot.classList.remove('sent'); }, 1500);
+                
+                setTimeout(() => { 
+                    statusDot.classList.remove('sent'); 
+                }, 1500);
             }
         }
 
+        // 5. Reset functionality (Tap hidden bottom bar to clear database)
         async function resetPrediction() {
             lastSentWord = "";
             const { error } = await supabase.from('predictions').update({ word: '' }).eq('id', 1);
+            
             if (!error) {
                 statusDot.className = '';
                 void statusDot.offsetWidth;
                 statusDot.classList.add('reset');
-                setTimeout(() => { statusDot.classList.remove('reset'); }, 1000);
+                
+                setTimeout(() => { 
+                    statusDot.classList.remove('reset'); 
+                }, 1000);
             }
         }
 
