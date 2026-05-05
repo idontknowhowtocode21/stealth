@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Stealth Portal</title>
+    <link rel="manifest" href="./manifest.json">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            background: #000000; 
+            overflow: hidden; 
+            position: relative; 
+            width: 100vw; 
+            height: 100vh; 
+        }
+        video { 
+            position: absolute; 
+            width: 1px; 
+            height: 1px; 
+            opacity: 0; 
+            pointer-events: none; 
+        }
+        #status-dot { 
+            position: absolute; 
+            top: 6px; 
+            right: 6px; 
+            width: 4px; 
+            height: 4px; 
+            background: rgba(255, 255, 255, 0.1); 
+            border-radius: 50%; 
+            z-index: 9999;
+            transition: all 0.2s ease;
+        }
+        #status-dot.sent { 
+            background: #00ff55 !important; 
+            opacity: 0.7 !important;
+            transform: scale(1.5);
+            box-shadow: 0 0 6px #00ff55; 
+        }
+        #status-dot.reset {
+            background: #00a2ff !important;
+            opacity: 0.6 !important;
+            transform: scale(1.5);
+            box-shadow: 0 0 6px #00a2ff;
+        }
+        #reset-btn { 
+            position: absolute; 
+            bottom: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 60px; 
+            background: transparent; 
+            z-index: 10000; 
+        }
+    </style>
+</head>
+<body>
+
+    <video id="video" autoplay playsinline></video>
+    <div id="status-dot"></div>
+    <div id="reset-btn" onclick="resetPrediction()"></div>
+
+    <script>
+        const SUPABASE_URL = "https://gwffcbujowloaeqtdaby.supabase.co";
+        const SUPABASE_KEY = "sb_publishable_MvZ29QEJ9wJTv-wG3H9HxQ_hsTKW1ES";
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        const video = document.getElementById('video');
+        const statusDot = document.getElementById('status-dot');
+        let isProcessing = false;
+        let lastSentWord = "";
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js').catch(err => console.log(err));
+        }
+
+        let wakeLock = null;
+        async function requestWakeLock() {
+            try { 
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen'); 
+                }
+            } catch (err) { console.log(err); }
+        }
+        document.addEventListener('visibilitychange', () => { 
+            if (wakeLock !== null && document.visibilityState === 'visible') requestWakeLock(); 
+        });
+
+        async function startCamera() {
+            await requestWakeLock();
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { exact: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => { setInterval(captureAndRecognize, 1500); };
+            } catch (err) {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => { setInterval(captureAndRecognize, 1500); };
+            }
+        }
+
+        async function captureAndRecognize() {
+            if (isProcessing) return;
+            isProcessing = true;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            Tesseract.recognize(canvas, 'eng')
+                .then(async ({ data: { text } }) => {
+                    const cleanedWord = text.trim().replace(/[^a-zA-Z]/g, "").toLowerCase();
+                    if (cleanedWord.length > 2 && cleanedWord !== lastSentWord) {
+                        await sendToDatabase(cleanedWord);
+                    }
+                })
+                .finally(() => { isProcessing = false; });
+        }
+
+        async function sendToDatabase(word) {
+            lastSentWord = word;
+            const { error } = await supabase.from('predictions').update({ word: word }).eq('id', 1);
+            if (!error) {
+                statusDot.className = ''; 
+                void statusDot.offsetWidth; 
+                statusDot.classList.add('sent');
+                setTimeout(() => { statusDot.classList.remove('sent'); }, 1500);
+            }
+        }
+
+        async function resetPrediction() {
+            lastSentWord = "";
+            const { error } = await supabase.from('predictions').update({ word: '' }).eq('id', 1);
+            if (!error) {
+                statusDot.className = '';
+                void statusDot.offsetWidth;
+                statusDot.classList.add('reset');
+                setTimeout(() => { statusDot.classList.remove('reset'); }, 1000);
+            }
+        }
+
+        window.onload = startCamera;
+    </script>
+</body>
+</html>
